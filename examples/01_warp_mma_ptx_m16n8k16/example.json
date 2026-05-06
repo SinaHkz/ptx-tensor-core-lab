@@ -1,0 +1,44 @@
+{
+  "example": {
+    "id": "01_warp_mma_ptx_m16n8k16",
+    "title": "Warp-level PTX MMA m16n8k16",
+    "description": "One-warp educational Tensor Core kernel using inline PTX mma.sync for fp16 inputs and fp32 accumulation.",
+    "instruction": "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"
+  },
+  "matrix": {
+    "mma_tile": {
+      "m": 16,
+      "n": 8,
+      "k": 16
+    },
+    "a": {
+      "rows": 16,
+      "cols": 16
+    },
+    "b": {
+      "rows": 16,
+      "cols": 16
+    },
+    "c": {
+      "rows": 16,
+      "cols": 16
+    }
+  },
+  "paths": {
+    "input_a": "inputs/A.txt",
+    "input_b": "inputs/B.txt",
+    "output_gpu": "outputs/C_gpu.txt",
+    "output_cpu": "outputs/C_cpu.txt",
+    "binary": "tc_mma_ptx"
+  },
+  "input_generation": {
+    "dtype": "float16",
+    "distribution": "uniform",
+    "low": -1.0,
+    "high": 1.0,
+    "seed": 42
+  },
+  "compare": {
+    "topk": 10
+  }
+}

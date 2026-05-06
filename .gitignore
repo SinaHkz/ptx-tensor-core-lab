@@ -1,0 +1,19 @@
+# Build artifacts
+*.o
+*.obj
+*.out
+*.ptx
+*.cubin
+*.fatbin
+examples/*/run
+examples/*/tc_mma_ptx
+
+# Generated inputs/outputs
+examples/*/inputs/A.txt
+examples/*/inputs/B.txt
+examples/*/outputs/C_gpu.txt
+examples/*/outputs/C_cpu.txt
+
+# Local/editor metadata
+.codex
+.DS_Store
