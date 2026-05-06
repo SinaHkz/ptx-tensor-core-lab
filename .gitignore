@@ -17,3 +17,6 @@ examples/*/outputs/C_cpu.txt
 # Local/editor metadata
 .codex
 .DS_Store
+
+# Local notes
+PLAN.md
