@@ -6,7 +6,7 @@
 *.cubin
 *.fatbin
 examples/*/run
-examples/*/tc_mma_ptx
+examples/*/tc_mma_ptx*
 
 # Generated inputs/outputs
 examples/*/inputs/A.txt

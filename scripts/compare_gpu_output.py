@@ -35,6 +35,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n", type=int, default=None, help="Cols of B")
     parser.add_argument("--size", type=int, default=None, help="Legacy square size override (N => m=k=n=N)")
     parser.add_argument("--topk", type=int, default=None, help="How many worst mismatches to print")
+    parser.add_argument(
+        "--max-abs",
+        type=float,
+        default=None,
+        help="Fail if max abs error exceeds this threshold",
+    )
+    parser.add_argument(
+        "--mae-threshold",
+        type=float,
+        default=None,
+        help="Fail if mean abs error exceeds this threshold",
+    )
     return parser.parse_args()
 
 
@@ -214,6 +226,29 @@ def resolve_topk(args: argparse.Namespace, cfg: Dict[str, Any]) -> int:
     return positive_int("topk", topk)
 
 
+def resolve_thresholds(
+    args: argparse.Namespace, cfg: Dict[str, Any]
+) -> Tuple[Optional[float], Optional[float]]:
+    validation_cfg = cfg.get("validation", {})
+
+    max_abs = args.max_abs if args.max_abs is not None else validation_cfg.get("max_abs")
+    mae_threshold = (
+        args.mae_threshold if args.mae_threshold is not None else validation_cfg.get("mae")
+    )
+
+    if max_abs is not None:
+        max_abs = float(max_abs)
+        if max_abs < 0:
+            raise ValueError("max_abs threshold must be >= 0")
+
+    if mae_threshold is not None:
+        mae_threshold = float(mae_threshold)
+        if mae_threshold < 0:
+            raise ValueError("mae threshold must be >= 0")
+
+    return max_abs, mae_threshold
+
+
 def main() -> int:
     args = parse_args()
     example_root, cfg_path = resolve_roots(args)
@@ -221,6 +256,7 @@ def main() -> int:
 
     m, k, n = resolve_dims(args, cfg)
     topk = resolve_topk(args, cfg)
+    max_abs_threshold, mae_threshold = resolve_thresholds(args, cfg)
     a_path, b_path, gpu_path, cpu_out_path = resolve_paths(args, cfg, example_root)
 
     a_disp = display_path(a_path, example_root)
@@ -255,9 +291,30 @@ def main() -> int:
     print(f"Mean abs error: {mae:.8f}")
     print(f"RMSE: {rmse:.8f}")
 
+    if max_abs_threshold is not None:
+        print(f"Max abs threshold: {max_abs_threshold:.8f}")
+    if mae_threshold is not None:
+        print(f"MAE threshold: {mae_threshold:.8f}")
+
     print(f"\nWorst {topk} mismatches:")
     for err, r, c, g, t in worst_k(gpu, cpu, n, topk):
         print(f"  ({r:2d}, {c:2d})  gpu={g: .8f}  cpu={t: .8f}  abs_err={err:.8f}")
+
+    failed = False
+    if max_abs_threshold is not None and max_abs > max_abs_threshold:
+        print(
+            f"\n[FAIL] max_abs={max_abs:.8f} exceeded threshold {max_abs_threshold:.8f}"
+        )
+        failed = True
+    if mae_threshold is not None and mae > mae_threshold:
+        print(f"[FAIL] mae={mae:.8f} exceeded threshold {mae_threshold:.8f}")
+        failed = True
+
+    if failed:
+        return 2
+
+    if max_abs_threshold is not None or mae_threshold is not None:
+        print("\n[PASS] Validation thresholds satisfied.")
 
     return 0
 

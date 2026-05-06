@@ -5,7 +5,7 @@ import json
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_EXAMPLE = "examples/01_warp_mma_ptx_m16n8k16"
@@ -13,6 +13,7 @@ DEFAULT_CONFIG_NAME = "example.json"
 
 FLOAT_DTYPES = {"float16", "fp16", "float32", "fp32", "float64", "fp64"}
 INT_DTYPES = {"int8", "int16", "int32", "int64"}
+SUPPORTED_CASES = {"random", "identity", "ones", "sequential"}
 
 
 @dataclass
@@ -25,6 +26,7 @@ class GenerationSettings:
     low: float
     high: float
     seed: Optional[int]
+    case: str
     a_path: Path
     b_path: Path
 
@@ -57,6 +59,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--low", type=float, default=None, help="Minimum random value")
     parser.add_argument("--high", type=float, default=None, help="Maximum random value")
     parser.add_argument("--seed", type=int, default=None, help="RNG seed")
+    parser.add_argument(
+        "--case",
+        default=None,
+        help="Input pattern case: random|identity|ones|sequential",
+    )
     return parser.parse_args()
 
 
@@ -168,6 +175,12 @@ def resolve_settings(args: argparse.Namespace, cfg: Dict[str, Any], example_root
         seed_cfg = gen.get("seed", None)
         seed = int(seed_cfg) if seed_cfg is not None else None
 
+    case = (args.case if args.case is not None else str(gen.get("case", "random"))).lower()
+    if case not in SUPPORTED_CASES:
+        raise ValueError(
+            f"Unsupported case: {case}. Expected one of: {', '.join(sorted(SUPPORTED_CASES))}"
+        )
+
     a_rel = paths.get("input_a", "inputs/A.txt")
     b_rel = paths.get("input_b", "inputs/B.txt")
     a_path = Path(args.a) if args.a else (example_root / a_rel)
@@ -182,20 +195,25 @@ def resolve_settings(args: argparse.Namespace, cfg: Dict[str, Any], example_root
         low=low,
         high=high,
         seed=seed,
+        case=case,
         a_path=a_path,
         b_path=b_path,
     )
 
 
-def sample_value(rng: random.Random, dtype: str, low: float, high: float) -> str:
+def sample_numeric(rng: random.Random, dtype: str, low: float, high: float) -> float:
     if dtype in INT_DTYPES:
         lo_int = int(round(low))
         hi_int = int(round(high))
         if lo_int > hi_int:
             lo_int, hi_int = hi_int, lo_int
-        return str(rng.randint(lo_int, hi_int))
+        return float(rng.randint(lo_int, hi_int))
+    return rng.uniform(low, high)
 
-    value = rng.uniform(low, high)
+
+def format_value(value: float, dtype: str) -> str:
+    if dtype in INT_DTYPES:
+        return str(int(round(value)))
     if dtype in {"float16", "fp16"}:
         return f"{value:.6f}"
     if dtype in {"float32", "fp32"}:
@@ -203,12 +221,49 @@ def sample_value(rng: random.Random, dtype: str, low: float, high: float) -> str
     return f"{value:.12f}"
 
 
-def write_matrix(path: Path, count: int, rng: random.Random, dtype: str, low: float, high: float) -> None:
+def build_matrix_values(
+    rows: int,
+    cols: int,
+    matrix_name: str,
+    case: str,
+    rng: random.Random,
+    dtype: str,
+    low: float,
+    high: float,
+) -> List[str]:
+    values: List[str] = []
+
+    if case == "random":
+        for _ in range(rows * cols):
+            values.append(format_value(sample_numeric(rng, dtype, low, high), dtype))
+        return values
+
+    if case == "ones":
+        one = format_value(1.0, dtype)
+        return [one] * (rows * cols)
+
+    if case == "sequential":
+        for i in range(rows * cols):
+            values.append(format_value(float(i), dtype))
+        return values
+
+    if case == "identity":
+        if matrix_name == "A":
+            for r in range(rows):
+                for c in range(cols):
+                    values.append(format_value(1.0 if r == c else 0.0, dtype))
+        else:
+            for _ in range(rows * cols):
+                values.append(format_value(sample_numeric(rng, dtype, low, high), dtype))
+        return values
+
+    raise ValueError(f"Unhandled case: {case}")
+
+
+def write_matrix(path: Path, values: List[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
-        for _ in range(count):
-            f.write(sample_value(rng, dtype, low, high))
-            f.write(" ")
+        f.write(" ".join(values))
         f.write("\n")
 
 
@@ -228,15 +283,35 @@ def main() -> int:
     settings = resolve_settings(args, cfg, example_root)
 
     rng = random.Random(settings.seed)
-    a_count = settings.m * settings.k
-    b_count = settings.k * settings.n
 
-    write_matrix(settings.a_path, a_count, rng, settings.dtype, settings.low, settings.high)
-    write_matrix(settings.b_path, b_count, rng, settings.dtype, settings.low, settings.high)
+    a_values = build_matrix_values(
+        rows=settings.m,
+        cols=settings.k,
+        matrix_name="A",
+        case=settings.case,
+        rng=rng,
+        dtype=settings.dtype,
+        low=settings.low,
+        high=settings.high,
+    )
+    b_values = build_matrix_values(
+        rows=settings.k,
+        cols=settings.n,
+        matrix_name="B",
+        case=settings.case,
+        rng=rng,
+        dtype=settings.dtype,
+        low=settings.low,
+        high=settings.high,
+    )
+
+    write_matrix(settings.a_path, a_values)
+    write_matrix(settings.b_path, b_values)
 
     print(
         "Generated inputs with "
-        f"dtype={settings.dtype}, A={settings.m}x{settings.k}, B={settings.k}x{settings.n}, "
+        f"case={settings.case}, dtype={settings.dtype}, "
+        f"A={settings.m}x{settings.k}, B={settings.k}x{settings.n}, "
         f"seed={settings.seed if settings.seed is not None else 'none'}"
     )
     print(f"A path: {display_path(settings.a_path, example_root)}")
