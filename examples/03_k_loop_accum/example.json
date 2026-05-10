@@ -1,0 +1,54 @@
+{
+  "example": {
+    "id": "03_k_loop_accum",
+    "title": "Warp-level PTX MMA with K-Loop Accumulation",
+    "description": "Single-warp Tensor Core kernel with K-tile accumulation loop over m16n8k16 PTX MMA.",
+    "instruction": "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"
+  },
+  "toolchain": {
+    "sm": 89
+  },
+  "learning": {
+    "stage_id": "03_k_loop_accum"
+  },
+  "matrix": {
+    "mma_tile": {
+      "m": 16,
+      "n": 8,
+      "k": 16
+    },
+    "a": {
+      "rows": 16,
+      "cols": 32
+    },
+    "b": {
+      "rows": 32,
+      "cols": 16
+    },
+    "c": {
+      "rows": 16,
+      "cols": 16
+    }
+  },
+  "paths": {
+    "input_a": "inputs/A.txt",
+    "input_b": "inputs/B.txt",
+    "output_gpu": "outputs/C_gpu.txt",
+    "output_cpu": "outputs/C_cpu.txt",
+    "binary": "tc_mma_ptx_k_loop"
+  },
+  "input_generation": {
+    "dtype": "float16",
+    "distribution": "uniform",
+    "low": -1.0,
+    "high": 1.0,
+    "seed": 42
+  },
+  "validation": {
+    "max_abs": 0.02,
+    "mae": 0.004
+  },
+  "compare": {
+    "topk": 10
+  }
+}
