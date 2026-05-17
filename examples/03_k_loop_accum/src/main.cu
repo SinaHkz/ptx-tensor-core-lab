@@ -14,6 +14,14 @@
 #define N_TILE 8
 #define WARP_SIZE 32
 
+// Stage-03 delta vs stage 02:
+//   - Removed #define K 16. K is now inferred from A.size() / M,
+//     allowing variable reduction depth (multiple of 16).
+//   - A is read with read_half_all (dynamic size) instead of
+//     read_half_exact (fixed 16x16).
+//   - Kernel signature changed from (..., int n_cols) to
+//     (..., int K, int N) to pass both dynamic dimensions.
+
 std::string join_path(const std::string &base, const std::string &child) {
   if (base.empty()) {
     return child;
@@ -121,6 +129,7 @@ int main(int argc, char **argv) {
   const std::string b_path = join_path(input_dir, "B.txt");
   const std::string c_path = join_path(output_dir, "C_gpu.txt");
 
+  // Stage-03: infer K from A size (instead of fixed #define K 16).
   const std::vector<half> A = read_half_all(a_path);
   if (A.size() % M != 0) {
     std::cerr << "Invalid A size: " << A.size()
@@ -129,6 +138,7 @@ int main(int argc, char **argv) {
   }
   const int K = static_cast<int>(A.size() / M);
 
+  // Stage-03: B is KxN, strides determined by dynamic K.
   const std::vector<half> B = read_half_all(b_path);
   if (B.size() % K != 0) {
     std::cerr << "Invalid B size: " << B.size()
@@ -137,6 +147,9 @@ int main(int argc, char **argv) {
   }
   const int N = static_cast<int>(B.size() / K);
 
+  // Alignment: K must be multiple of m16n8k16 K-tile (16),
+  // N must be multiple of m16n8k16 N-tile (8).
+  // Stage-02 validated only N % 8 == 0; stage 03 adds K % 16 == 0.
   if (K % 16 != 0) {
     std::cerr << "Stage 03 requires K to be a multiple of 16. Got K=" << K << "\n";
     return 1;
@@ -159,6 +172,7 @@ int main(int argc, char **argv) {
   cudaMemcpy(dA, A.data(), sizeof(half) * A.size(), cudaMemcpyHostToDevice);
   cudaMemcpy(dB, B.data(), sizeof(half) * B.size(), cudaMemcpyHostToDevice);
 
+  // Stage-03: kernel receives both K and N.
   tensor_core_kernel<<<1, WARP_SIZE>>>(dA, dB, dC, K, N);
   cudaError_t err = cudaDeviceSynchronize();
   if (err != cudaSuccess) {

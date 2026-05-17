@@ -8,6 +8,18 @@ __device__ __forceinline__ uint32_t pack_half2(half lo, half hi) {
     return static_cast<uint32_t>(lo_bits) | (static_cast<uint32_t>(hi_bits) << 16);
 }
 
+/*
+ * Stage 03: added k_tile_base parameter for K-tile accumulation.
+ *
+ * Delta vs stage 02:
+ *   - New parameter: k_tile_base (stage 02 assumed K=16, no K offset).
+ *   - A column indices shifted by k_tile_base to select the current
+ *     16-wide K-tile slice: A[row * lda + (k_tile_base + col_in_tile)].
+ *   - B row indices shifted by k_tile_base to select the corresponding
+ *     16-row K-tile slice: B[(k_tile_base + row_in_tile) * ldb + col].
+ *   - lda and ldb are now dynamic (set to K and N respectively) instead
+ *     of hardcoded 16 and n_cols.
+ */
 __device__ inline void mma_sync_m16n8k16_row_col_f16(
     float *accum4,
     const half *A,
