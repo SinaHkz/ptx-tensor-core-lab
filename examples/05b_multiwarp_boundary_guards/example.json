@@ -1,0 +1,54 @@
+{
+  "example": {
+    "id": "05b_multiwarp_boundary_guards",
+    "title": "Multi-Warp Block Tiling with Boundary Guards",
+    "description": "Stage 05b adds boundary-safe shared-memory loads and warp participation checks on top of the Stage 05 multi-warp mapping.",
+    "instruction": "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"
+  },
+  "toolchain": {
+    "sm": 89
+  },
+  "learning": {
+    "stage_id": "05b_multiwarp_boundary_guards"
+  },
+  "matrix": {
+    "mma_tile": {
+      "m": 16,
+      "n": 8,
+      "k": 16
+    },
+    "a": {
+      "rows": 16,
+      "cols": 64
+    },
+    "b": {
+      "rows": 64,
+      "cols": 40
+    },
+    "c": {
+      "rows": 16,
+      "cols": 40
+    }
+  },
+  "paths": {
+    "input_a": "inputs/A.txt",
+    "input_b": "inputs/B.txt",
+    "output_gpu": "outputs/C_gpu.txt",
+    "output_cpu": "outputs/C_cpu.txt",
+    "binary": "tc_mma_ptx_multiwarp_bounds"
+  },
+  "input_generation": {
+    "dtype": "float16",
+    "distribution": "uniform",
+    "low": -1.0,
+    "high": 1.0,
+    "seed": 42
+  },
+  "validation": {
+    "max_abs": 0.02,
+    "mae": 0.004
+  },
+  "compare": {
+    "topk": 10
+  }
+}
