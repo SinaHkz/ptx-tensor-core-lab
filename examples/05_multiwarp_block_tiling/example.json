@@ -1,0 +1,54 @@
+{
+  "example": {
+    "id": "05_multiwarp_block_tiling",
+    "title": "Multi-Warp Block Tiling (Core) with PTX MMA",
+    "description": "Four warps per block cooperatively stage shared tiles and compute 16x32 C block tiles. This core stage intentionally omits boundary checks.",
+    "instruction": "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"
+  },
+  "toolchain": {
+    "sm": 89
+  },
+  "learning": {
+    "stage_id": "05_multiwarp_block_tiling"
+  },
+  "matrix": {
+    "mma_tile": {
+      "m": 16,
+      "n": 8,
+      "k": 16
+    },
+    "a": {
+      "rows": 16,
+      "cols": 64
+    },
+    "b": {
+      "rows": 64,
+      "cols": 32
+    },
+    "c": {
+      "rows": 16,
+      "cols": 32
+    }
+  },
+  "paths": {
+    "input_a": "inputs/A.txt",
+    "input_b": "inputs/B.txt",
+    "output_gpu": "outputs/C_gpu.txt",
+    "output_cpu": "outputs/C_cpu.txt",
+    "binary": "tc_mma_ptx_multiwarp"
+  },
+  "input_generation": {
+    "dtype": "float16",
+    "distribution": "uniform",
+    "low": -1.0,
+    "high": 1.0,
+    "seed": 42
+  },
+  "validation": {
+    "max_abs": 0.02,
+    "mae": 0.004
+  },
+  "compare": {
+    "topk": 10
+  }
+}
