@@ -1,0 +1,54 @@
+{
+  "example": {
+    "id": "07_multiblock_n_tiles_cp_async",
+    "title": "Multi-Block N-Tiles with cp.async Pipeline",
+    "description": "Stage 07 keeps the guarded cp.async pipeline and moves N-block ownership to grid.x for multi-block parallelism.",
+    "instruction": "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"
+  },
+  "toolchain": {
+    "sm": 89
+  },
+  "learning": {
+    "stage_id": "07_multiblock_n_tiles_cp_async"
+  },
+  "matrix": {
+    "mma_tile": {
+      "m": 16,
+      "n": 8,
+      "k": 16
+    },
+    "a": {
+      "rows": 16,
+      "cols": 64
+    },
+    "b": {
+      "rows": 64,
+      "cols": 40
+    },
+    "c": {
+      "rows": 16,
+      "cols": 40
+    }
+  },
+  "paths": {
+    "input_a": "inputs/A.txt",
+    "input_b": "inputs/B.txt",
+    "output_gpu": "outputs/C_gpu.txt",
+    "output_cpu": "outputs/C_cpu.txt",
+    "binary": "tc_mma_ptx_cp_async_multiblock"
+  },
+  "input_generation": {
+    "dtype": "float16",
+    "distribution": "uniform",
+    "low": -1.0,
+    "high": 1.0,
+    "seed": 42
+  },
+  "validation": {
+    "max_abs": 0.02,
+    "mae": 0.004
+  },
+  "compare": {
+    "topk": 10
+  }
+}
