@@ -1,305 +1,237 @@
-# Example 01 Beginner Guide: Warp-level PTX MMA (m16n8k16)
+# Example 01: Warp-Level PTX MMA (`m16n8k16`)
 
-This guide is dedicated to:
+This first stage implements a complete `16x16` matrix multiplication with one
+CUDA warp and inline PTX Tensor Core instructions. It is the smallest example
+in the lab and focuses on the essential mechanics: distributing matrix
+fragments across 32 lanes, packing FP16 operands into registers, issuing
+`mma.sync`, and mapping the resulting FP32 fragments back to memory.
 
-- `examples/01_warp_mma_ptx_m16n8k16/`
+No shared memory, block tiling, asynchronous copies, or boundary handling is
+used yet. Those features are introduced independently in later stages.
 
-It combines quick-start beginner notes and the full beginner technical review for this specific example.
+[Back to the project roadmap](../../README.md)
 
-## Quick Start (This Example Only)
+## What This Stage Demonstrates
 
-1. Move to this example:
-   - `cd examples/01_warp_mma_ptx_m16n8k16`
-2. Show commands:
-   - `make help`
-3. Run full flow (build + input generation + run + compare):
-   - `make all`
+- One CUDA block containing exactly one 32-thread warp
+- Manual lane-to-fragment mapping for A, B, and C/D
+- Inline PTX `mma.sync` rather than the CUDA WMMA C++ API
+- FP16 A/B operands with FP32 accumulation and output
+- Two `16x8` MMA operations combined into one `16x16` result
+- Deterministic input generation and comparison with a CPU reference
 
-Step-by-step commands are also available:
+## Operation
 
-- `make build`
-- `make gen-input`
-- `make run`
-- `make compare`
-- `make clean`
+The example computes the row-major matrix product
 
-Generated files for this example are stored only here:
+```text
+C[16x16] = A[16x16] x B[16x16]
+```
 
-- `examples/01_warp_mma_ptx_m16n8k16/inputs/`
-- `examples/01_warp_mma_ptx_m16n8k16/outputs/`
+using:
 
-## Beginner Glossary
+```ptx
+mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32
+```
 
-- **Tensor Core**: specialized GPU hardware for fast matrix multiply-accumulate operations.
-- **Warp**: a group of 32 threads that execute together.
-- **Lane**: a thread's index inside a warp (`0..31`).
-- **`laneid`**: PTX special register containing the current lane index.
-- **Fragment**: the per-thread slice of a matrix tile assigned to one lane for MMA.
-- **MMA tile shape (`m16n8k16`)**:
-  - `m`: output rows (`16`)
-  - `n`: output cols (`8`)
-  - `k`: reduction dimension (`16`)
-- **`mma.sync`**: warp-scope matrix multiply-accumulate instruction (`D = A * B + C`).
-- **`.row.col`**: layout interpretation for A/B fragments in the instruction.
-- **Accumulator**: existing output values (`C`) that get added into new results.
-- **Register packing (`f16x2`)**: two `half` values packed into one 32-bit register.
-- **`group` / `tid` in this example**:
-  - `group = lane >> 2` (8 groups total)
-  - `tid = lane & 3` (lane position inside each 4-thread group)
+The instruction suffix describes both the tile and operand types:
 
-## About This Example's Mapping
+| Component | Meaning |
+|---|---|
+| `m16n8k16` | A is `16x16`, B is `16x8`, and C/D is `16x8` |
+| `.row.col` | A and B use the PTX row/column fragment interpretations |
+| first `.f32` | destination D elements are FP32 |
+| first and second `.f16` | A and B elements are FP16 |
+| final `.f32` | accumulator C elements are FP32 |
 
-This example uses:
+One instruction produces only a `16x8` output tile. The kernel therefore
+issues the instruction twice:
 
-- `mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32`
+```text
+MMA 0: C[:,  0:8] = A[:, 0:16] x B[0:16,  0:8]
+MMA 1: C[:, 8:16] = A[:, 0:16] x B[0:16, 8:16]
+```
 
-That means:
+Both accumulator fragments start at zero, so each operation computes
+`D = A x B + 0` for its half of the output.
 
-- A and B are `fp16`
-- accumulation/output is `fp32`
-- one MMA call produces a `16x8` output tile
+## Requirements
 
-To produce a full `16x16` output, the kernel executes two MMA tiles:
+- Linux
+- Python 3
+- GNU Make
+- NVIDIA CUDA Toolkit with `nvcc`
+- An NVIDIA GPU compatible with the default `sm_80` build target
 
-- columns `0..7`
-- columns `8..15`
+To target a different compatible architecture, override `NVCCFLAGS`:
 
-## What This Code Is Doing
+```bash
+make NVCCFLAGS="-arch=sm_89" all
+```
 
-At a high level:
+## Run the Example
 
-1. `src/main.cu` reads `inputs/A.txt` and `inputs/B.txt` as 16x16 matrices (stored row-major).
-2. It copies them to the GPU as `half` (`fp16`) values.
-3. `src/kernel.cu` launches exactly one warp (`32` threads).
-4. That warp executes PTX Tensor Core MMA instructions from `src/mma_ptx.cuh`.
-5. The output is written as a full 16x16 `float` (`fp32`) matrix to `outputs/C_gpu.txt`.
+From the repository root:
 
-The MMA instruction used is:
+```bash
+cd examples/01_warp_mma_ptx_m16n8k16
+make all
+```
 
-- `mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32`
+The full workflow:
 
-This means:
+1. Compiles the CUDA sources into `tc_mma_ptx`.
+2. Generates deterministic `16x16` inputs in `inputs/`.
+3. Launches the kernel as `<<<1, 32>>>`.
+4. Writes the GPU result to `outputs/C_gpu.txt`.
+5. Computes `outputs/C_cpu.txt` and reports numerical differences.
 
-- Tile shape: `m=16, n=8, k=16`
-- Data types: `A=f16`, `B=f16`, accumulate/output in `f32`
-- Mathematical form per instruction: `D = A * B + C`
+Run individual steps with:
 
-Because the kernel needs a 16x16 final result, it runs two `m16n8k16` tiles:
+```bash
+make help
+make build
+make gen-input
+make run
+make compare
+make clean
+```
 
-- First tile for output columns `0..7`
-- Second tile for output columns `8..15`
+## Code Flow
 
-## Warp, Lane, Group: Core Mental Model
+### 1. Host setup — [`src/main.cu`](src/main.cu)
 
-Tensor Core `mma.sync` instructions are warp-scope operations. A warp is 32 threads.
+The host code reads A and B as row-major `16x16` matrices, converts their
+elements to CUDA `half`, allocates device memory, and launches one 32-thread
+block. Because every output element is written by the kernel, the output buffer
+does not require initialization.
 
-In this code (`src/kernel.cu`):
+### 2. Warp orchestration — [`src/kernel.cu`](src/kernel.cu)
 
-- `lane = threadIdx.x & 31`
-- `group = lane >> 2`
-- `tid = lane & 3`
+The kernel derives each thread's lane identifiers, creates two four-element
+FP32 accumulator fragments, and calls the MMA helper for output-column bases
+`0` and `8`. It then applies the PTX C/D fragment mapping to store both `16x8`
+tiles as one row-major `16x16` matrix.
 
-Interpretation:
+### 3. Fragment construction and MMA — [`src/mma_ptx.cuh`](src/mma_ptx.cuh)
 
-- `lane`: thread index inside warp (`0..31`)
-- `group`: one of 8 groups (`0..7`), each group contains 4 lanes
-- `tid`: position inside 4-lane group (`0..3`)
+The helper selects the A and B values owned by each lane, packs pairs of FP16
+values into 32-bit registers, issues the inline PTX instruction, and returns
+four FP32 results per lane.
 
-Why this matters: the PTX spec defines fragment formulas using `%laneid`. So every lane owns specific matrix elements.
+## Warp and Lane Mapping
 
-## Fragmentation: What Each Thread Owns
+`mma.sync` is a warp-level operation: all 32 lanes collectively supply the
+operands and receive the result. For lane `0..31`, the code defines:
 
-For `mma.m16n8k16` with `f16` inputs and `f32` accumulators:
+```text
+group = lane >> 2   // 0..7
+tid   = lane & 3    // 0..3 within the group
+```
 
-- Each lane provides:
-  - `A` fragment: 8 fp16 values (`a0..a7`) packed into 4 registers (`f16x2`)
-  - `B` fragment: 4 fp16 values (`b0..b3`) packed into 2 registers (`f16x2`)
-  - `C` fragment: 4 fp32 values (`c0..c3`)
-- Each lane receives:
-  - `D` fragment: 4 fp32 values (`d0..d3`)
+Each lane owns:
 
-That is why the inline PTX has:
+| Fragment | Values per lane | Register representation |
+|---|---:|---|
+| A | 8 FP16 values | 4 packed `f16x2` registers |
+| B | 4 FP16 values | 2 packed `f16x2` registers |
+| C/D | 4 FP32 values | 4 FP32 registers |
 
-- 4 A registers
-- 2 B registers
-- 4 accumulator/output registers
+### A fragment
 
-### Formula View (From `%laneid`)
+For the lane's A values:
 
-For this instruction family, the PTX docs define:
+| Elements | Row | Columns |
+|---|---|---|
+| `a0, a1` | `group` | `2*tid + {0,1}` |
+| `a2, a3` | `group + 8` | `2*tid + {0,1}` |
+| `a4, a5` | `group` | `2*tid + {8,9}` |
+| `a6, a7` | `group + 8` | `2*tid + {8,9}` |
 
-- `groupID = lane >> 2`
-- `threadID_in_group = lane % 4`
+### B fragment
 
-For A fragment elements `ai` (`i=0..7`) in row-major A:
+For a `16x8` output tile beginning at `n_tile_base`:
 
-- Row:
-  - `groupID` for `i in {0,1,4,5}`
-  - `groupID + 8` for `i in {2,3,6,7}`
-- Col:
-  - `(threadID_in_group * 2) + (i & 1)` for `i < 4`
-  - `(threadID_in_group * 2) + (i & 1) + 8` for `i >= 4`
+| Elements | Rows | Column |
+|---|---|---|
+| `b0, b1` | `2*tid + {0,1}` | `n_tile_base + group` |
+| `b2, b3` | `2*tid + {8,9}` | `n_tile_base + group` |
 
-For B fragment elements `bi` (`i=0..3`) in column-major B:
+B is stored row-major in global memory. The `.col` qualifier describes the
+logical fragment interpretation expected by the MMA instruction; it does not
+load or transpose memory automatically. The helper explicitly places each
+logical B element into the correct lane register.
 
-- Row:
-  - `(threadID_in_group * 2) + (i & 1)` for `i < 2`
-  - `(threadID_in_group * 2) + (i & 1) + 8` for `i >= 2`
-- Col:
-  - `groupID`
+### C/D fragment and output store
 
-For C/D fragment elements `ci/di` (`i=0..3`) with fp32 accumulators:
+Each lane receives four FP32 values for one `16x8` output tile:
 
-- Row:
-  - `groupID` for `i < 2`
-  - `groupID + 8` for `i >= 2`
-- Col:
-  - `(threadID_in_group * 2) + (i & 1)`
+| Elements | Row | Columns within the tile |
+|---|---|---|
+| `d0, d1` | `group` | `2*tid + {0,1}` |
+| `d2, d3` | `group + 8` | `2*tid + {0,1}` |
 
-## How Spec Formulas Map Into This Code
+Applying this mapping once with column base `0` and once with column base `8`
+reconstructs all 256 elements of C without overlapping stores.
 
-### A fragment load (`src/mma_ptx.cuh`)
+## Register Packing and Inline PTX
 
-The code computes `a0..a7` using `group` and `tid`:
+PTX expects each pair of FP16 inputs in a single 32-bit register. The helper's
+`pack_half2()` function places the first value in bits `15:0` and the second in
+bits `31:16`.
 
-- Rows are split between `group` and `group + 8`
-- Columns use `tid*2 + {0,1}` and then `+8` for the high-k half
+The inline assembly uses:
 
-This matches PTX fragment rules for `m16n8k16` row-major A layout.
+```cpp
+: "+f"(d0), "+f"(d1), "+f"(d2), "+f"(d3)
+: "r"(a_reg0), /* ... */, "r"(b_reg1)
+```
 
-### B fragment load (`src/mma_ptx.cuh`)
+- `"r"` supplies the packed 32-bit A/B registers.
+- `"+f"` marks each FP32 accumulator as both an input and an output, matching
+  the `D = A x B + C` read-modify-write behavior.
+- `.sync.aligned` requires the participating warp lanes to execute the same MMA
+  instruction together; divergent participation is invalid.
 
-The code computes `b0..b3` using:
+## Validation
 
-- Row positions driven by `tid*2 + {0,1}` and then `+8`
-- Column position driven by `group` (+ tile base column 0 or 8)
+Input generation is controlled by [`example.json`](example.json). The default
+case uses a fixed random seed and values in `[-1, 1]`. The shared comparison
+script computes a CPU matrix multiplication reference and reports:
 
-This matches PTX fragment rules for `m16n8k16` column-major B layout in the instruction.
+- maximum absolute error
+- mean absolute error
+- root mean squared error
+- the ten largest element-wise mismatches
 
-### Packing fp16 pairs
+Because the GPU path converts inputs to FP16 while the reference reads the
+generated decimal values, small numerical differences are expected. This
+stage's configuration reports the metrics but does not currently define
+pass/fail thresholds.
 
-PTX expects packed `f16x2` in 32-bit registers for A/B operands.
+## Common Failure Modes
 
-`pack_half2()` converts two half values into one `uint32_t`:
+- Launching fewer than 32 threads or allowing lanes to diverge around
+  `mma.sync`
+- Assuming one `m16n8k16` instruction produces a `16x16` result
+- Confusing row-major memory storage with PTX fragment layout qualifiers
+- Reversing the low/high FP16 values in a packed `f16x2` register
+- Using output-only (`"=f"`) constraints instead of read/write (`"+f"`)
+- Storing D fragments with ordinary row/column indexing instead of the PTX
+  lane mapping
 
-- low 16 bits = first half
-- high 16 bits = second half
+## Scope of This Stage
 
-### Running MMA
+This example is intentionally correctness-first. Every lane loads its fragment
+directly from global memory, the dimensions are fixed at `16x16`, and there is
+only one warp. It establishes the instruction and mapping model used by all
+later stages; it is not intended as a performance benchmark.
 
-Inline asm:
+Continue with [Example 02: Parametric N Tiles](../02_parametric_n_tiles/) to
+replace the two hard-coded output tiles with an N-tile loop.
 
-- `"+f"` on outputs (`d0..d3`) means read-modify-write (`D = A*B + D`)
-- `"r"` on A/B means pass packed 32-bit registers
+## References
 
-Important detail:
-
-- `.row.col` in `mma.sync...row.col...` sets logical layout interpretation for A and B fragments.
-- It does not auto-load matrices from memory.
-- You still place correct values in correct lane registers manually.
-
-## Why `lane`/`group` Store Mapping Works
-
-After MMA, each lane has 4 fp32 outputs for a 16x8 tile.
-
-In `src/kernel.cu`, for each `i in 0..3`:
-
-- `row = group` for `i < 2`, else `group + 8`
-- `col_in_tile = tid*2 + (i & 1)`
-
-Then it stores:
-
-- tile0 -> columns `0..7`
-- tile1 -> columns `8..15`
-
-This reconstructs a row-major 16x16 output matrix in `C`.
-
-## Important Beginner Pitfalls
-
-### Pitfall A: Treating MMA as single-thread
-
-`mma.sync` is warp-scope. All lanes must participate correctly.
-
-### Pitfall B: Wrong instruction vs data type
-
-This example uses floating-point MMA (`f16,f16 -> f32`), not integer MMA.
-
-### Pitfall C: Wrong tile shape assumption
-
-`m16n8k16` computes 16x8. Full 16x16 requires two tiles.
-
-### Pitfall D: Wrong fragment mapping
-
-Most wrong answers come from lane-to-element mapping mistakes.
-
-### Pitfall E: Wrong asm constraints
-
-Using `"=f"` instead of `"+f"` changes accumulator semantics.
-
-### Pitfall F: PTX MMA vs WMMA confusion
-
-This example is manual PTX MMA (explicit mapping/packing).
-
-### Pitfall G: Performance optimization too early
-
-This example is correctness-first and educational.
-
-## Quick Mapping Cheat Sheet
-
-- Warp size: 32
-- Lane: `lane = threadIdx.x & 31`
-- Group of 4 lanes: `group = lane >> 2`
-- Lane inside group: `tid = lane & 3`
-- MMA instruction: `m16n8k16`
-- One MMA output shape: `16 x 8`
-- Two MMA calls needed for `16 x 16`
-
-## File-by-File Notes
-
-### `src/main.cu`
-
-- Handles I/O and launch.
-- Uses one warp launch (`<<<1,32>>>`).
-- Reads from `inputs/`, writes to `outputs/`.
-
-### `src/kernel.cu`
-
-- Orchestrates tile-level MMA calls.
-- Converts lane-local fragments into global output indices.
-
-### `src/mma_ptx.cuh`
-
-- Performs fragment extraction from A/B.
-- Packs fp16 pairs.
-- Issues inline PTX MMA instruction.
-
-## What To Learn Next
-
-1. Validate this kernel on deterministic inputs (all ones, identity, small integers).
-2. Move A/B into shared memory and load fragments from shared.
-3. Add a K-loop (multiple `k` tiles) for larger GEMM.
-4. Compare this inline PTX path against `nvcuda::wmma` API.
-
-## Practical Debug Checklist
-
-1. Does instruction type match data types?
-2. Are all 32 lanes participating?
-3. Are `%laneid` formulas exact for A, B, and C/D?
-4. Are f16 values packed in correct low/high 16-bit order?
-5. Are asm constraints correct (`"r"` inputs, `"+f"` accumulators)?
-6. Is store mapping back to global matrix coordinates correct?
-7. Are you comparing the same shape/layout on CPU?
-
-## External References
-
-1. PTX ISA (matrix fragment rules and MMA forms):  
-https://docs.nvidia.com/cuda/archive/11.0/parallel-thread-execution/index.html
-
-2. CUDA Programming Guide (warps, lanes, SIMT):  
-https://docs.nvidia.com/cuda/cuda-programming-guide/01-introduction/programming-model.html
-
-3. Inline PTX constraints (`"r"`, `"f"`, `"+f"`):  
-https://docs.nvidia.com/cuda/archive/13.0.2/inline-ptx-assembly/index.html
-
-4. WMMA fragment caveat (layout unspecified/architecture dependent):  
-https://docs.nvidia.com/cuda/archive/13.1.1/cuda-c-programming-guide/05-appendices/cpp-language-extensions.html
+- [PTX ISA: Warp-level matrix instructions](https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-instructions-mma)
+- [CUDA C++ Programming Guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/)
+- [Using Inline PTX Assembly in CUDA](https://docs.nvidia.com/cuda/inline-ptx-assembly/)
