@@ -1,0 +1,54 @@
+{
+  "example": {
+    "id": "08b_m_boundary_guards",
+    "title": "M-Boundary Guards with cp.async Pipeline",
+    "description": "Stage 08b keeps stage-08 grid.y M-tiling and adds row guards for partial M tiles.",
+    "instruction": "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"
+  },
+  "toolchain": {
+    "sm": 89
+  },
+  "learning": {
+    "stage_id": "08b_m_boundary_guards"
+  },
+  "matrix": {
+    "mma_tile": {
+      "m": 16,
+      "n": 8,
+      "k": 16
+    },
+    "a": {
+      "rows": 30,
+      "cols": 64
+    },
+    "b": {
+      "rows": 64,
+      "cols": 40
+    },
+    "c": {
+      "rows": 30,
+      "cols": 40
+    }
+  },
+  "paths": {
+    "input_a": "inputs/A.txt",
+    "input_b": "inputs/B.txt",
+    "output_gpu": "outputs/C_gpu.txt",
+    "output_cpu": "outputs/C_cpu.txt",
+    "binary": "tc_mma_ptx_cp_async_m_bounds"
+  },
+  "input_generation": {
+    "dtype": "float16",
+    "distribution": "uniform",
+    "low": -1.0,
+    "high": 1.0,
+    "seed": 42
+  },
+  "validation": {
+    "max_abs": 0.02,
+    "mae": 0.004
+  },
+  "compare": {
+    "topk": 10
+  }
+}
